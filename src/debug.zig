@@ -19,7 +19,7 @@ fn calc_offset(instruction_code: u8, current_offset: usize) usize {
     return current_offset + instruction.num_operands() + 1;
 }
 
-fn disassemble_instruction(chunk: *Chunk, offset: usize) void {
+pub fn disassemble_instruction(chunk: *Chunk, offset: usize) void {
     std.debug.print("{d:0>4} ", .{offset});
     const code = chunk.code;
     const lines = chunk.lines;
@@ -32,13 +32,18 @@ fn disassemble_instruction(chunk: *Chunk, offset: usize) void {
 
     const instruction = @intToEnum(OpCode, code.items[offset]);
     switch (instruction) {
-        .op_ret => simple_instruction("OP_RETURN"),
         .op_constant => constant_instruction("OP_CONSTANT", chunk, offset),
+        .op_negate => simple_instruction("OP_NEGATE"),
+        .op_add => simple_instruction("OP_ADD"),
+        .op_sub => simple_instruction("OP_SUBSTRACT"),
+        .op_mul => simple_instruction("OP_MULTIPLY"),
+        .op_div => simple_instruction("OP_DIVIDE"),
+        .op_ret => simple_instruction("OP_RETURN"),
     }
 }
 
 fn simple_instruction(comptime name: []const u8) void {
-    std.debug.print("{s}\n", .{ name });
+    std.debug.print("{s}\n", .{name});
 }
 
 fn constant_instruction(name: []const u8, chunk: *Chunk, offset: usize) void {

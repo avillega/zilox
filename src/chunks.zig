@@ -11,6 +11,11 @@ pub const OpCode = enum(u8) {
 
     op_ret,
     op_constant,
+    op_negate,
+    op_add,
+    op_sub,
+    op_mul,
+    op_div,
 
     pub fn toU8(self: Self) u8 {
         return @enumToInt(self);
@@ -18,8 +23,8 @@ pub const OpCode = enum(u8) {
 
     pub fn num_operands(self: Self) usize {
         return switch (self) {
-            .op_ret => 0,
             .op_constant => 1,
+            else => 0,
         };
     }
 };
