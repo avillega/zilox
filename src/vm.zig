@@ -2,6 +2,7 @@ const std = @import("std");
 const chunks = @import("./chunks.zig");
 const values = @import("./value.zig");
 const debug = @import("./debug.zig");
+const compiler = @import("./compiler.zig");
 const Value = values.Value;
 const Chunk = chunks.Chunk;
 const OpCode = chunks.OpCode;
@@ -39,15 +40,15 @@ pub const Vm = struct {
         };
     }
 
-    pub fn interpret(self: *Self, chunk: *Chunk) InterpretError!void {
-        self.chunk = chunk;
-        self.ip = chunk.code.items.ptr;
-        try self.run();
+    pub fn interpret(self: *Self, source: []const u8) InterpretError!void {
+        _ = self;
+        compiler.compile(source);
+        return;
     }
 
     fn run(self: *Self) InterpretError!void {
         while (true) {
-            if (DEBUG_TRACE_EXECUTION) {
+            if (comptime DEBUG_TRACE_EXECUTION) {
                 print_stack(self.stack[0..self.stack_top]);
                 debug.disassemble_instruction(self.chunk, @ptrToInt(self.ip) - @ptrToInt(self.chunk.code.items.ptr));
             }
@@ -72,7 +73,7 @@ pub const Vm = struct {
         }
     }
 
-    fn binary_op(self: *Self, op: BinaryOp) void {
+    fn binary_op(self: *Self, comptime op: BinaryOp) void {
         const b = self.pop();
         const a = self.pop();
         const result = switch (op) {
@@ -82,18 +83,6 @@ pub const Vm = struct {
             .div => a / b,
         };
         self.push(result);
-    }
-
-    fn read_instruction(self: *Self) OpCode {
-        const instruction = @intToEnum(OpCode, self.ip[0]);
-        self.ip += 1;
-        return instruction;
-    }
-
-    fn read_constant(self: *Self) Value {
-        const constant = self.chunk.constants.items[self.ip[0]];
-        self.ip += 1;
-        return constant;
     }
 
     pub fn push(self: *Self, value: Value) void {
@@ -108,6 +97,18 @@ pub const Vm = struct {
 
     pub fn deinit(self: *Self) void {
         _ = self;
+    }
+
+    inline fn read_instruction(self: *Self) OpCode {
+        const instruction = @intToEnum(OpCode, self.ip[0]);
+        self.ip += 1;
+        return instruction;
+    }
+
+    inline fn read_constant(self: *Self) Value {
+        const constant = self.chunk.constants.items[self.ip[0]];
+        self.ip += 1;
+        return constant;
     }
 };
 
