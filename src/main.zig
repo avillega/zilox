@@ -49,9 +49,10 @@ fn repl(vm: *Vm) !void {
     }
 }
 
-fn runFile(fileName: []u8, vm: *Vm, allocator: *Allocator) !void {
+fn runFile(fileName: []const u8, vm: *Vm, allocator: *Allocator) !void {
     const source = readFile(fileName, allocator);
     defer allocator.free(source);
+
     try vm.interpret(source);
 }
 
@@ -65,7 +66,7 @@ fn readFile(path: []const u8, allocator: *Allocator) []const u8 {
     };
     defer file.close();
 
-    return file.readToEndAlloc(allocator, 1000000) catch |err| {
+    return file.readToEndAlloc(allocator, 100_000_000) catch |err| {
         std.log.err("Could not read file \"{s}\", error: {any}.\n", .{ path, err });
         process.exit(74);
     };
