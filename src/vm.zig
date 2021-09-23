@@ -3,6 +3,7 @@ const chunks = @import("./chunks.zig");
 const values = @import("./value.zig");
 const debug = @import("./debug.zig");
 const compiler = @import("./compiler.zig");
+const Allocator = std.mem.Allocator;
 const Value = values.Value;
 const Chunk = chunks.Chunk;
 const OpCode = chunks.OpCode;
@@ -40,17 +41,23 @@ pub const Vm = struct {
         };
     }
 
-    pub fn interpret(self: *Self, source: []const u8) InterpretError!void {
+    pub fn interpret(self: *Self, source: []const u8, allocator: *Allocator) InterpretError!void {
         _ = self;
-        compiler.compile(source);
-        return;
+        var chunk = Chunk.init(allocator);
+        defer chunk.deinit();
+
+        compiler.compile(source, &chunk) catch return InterpretError.CompileError;
+        self.chunk = &chunk;
+        self.ip = chunk.code.items.ptr;
+
+        try self.run();
     }
 
     fn run(self: *Self) InterpretError!void {
         while (true) {
             if (comptime DEBUG_TRACE_EXECUTION) {
                 print_stack(self.stack[0..self.stack_top]);
-                debug.disassemble_instruction(self.chunk, @ptrToInt(self.ip) - @ptrToInt(self.chunk.code.items.ptr));
+                debug.disassembleInstruction(self.chunk, @ptrToInt(self.ip) - @ptrToInt(self.chunk.code.items.ptr));
             }
 
             const instruction = self.read_instruction();

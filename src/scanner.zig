@@ -190,13 +190,13 @@ fn isAlpha(char: u8) bool {
     return (char >= 'a' and char <= 'z') or (char >= 'A' and char <= 'Z') or (char == '_');
 }
 
-const Token = struct {
+pub const Token = struct {
     ty: TokenType,
     lexeme: []const u8,
     line: u64,
 };
 
-const TokenType = enum {
+pub const TokenType = enum {
     // Single-character tokens.
     LEFT_PAREN,
     RIGHT_PAREN,

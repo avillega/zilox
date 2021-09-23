@@ -4,12 +4,12 @@ const values = @import("./value.zig");
 const Chunk = chunks.Chunk;
 const OpCode = chunks.OpCode;
 
-pub fn dissasemble_chunk(chunk: *Chunk, comptime name: []const u8) void {
+pub fn dissasembleChunk(chunk: *Chunk, comptime name: []const u8) void {
     std.debug.print("=== {s} ===\n", .{name});
     const code = chunk.code;
     var offset: usize = 0;
     while (offset < code.count) {
-        disassemble_instruction(chunk, offset);
+        disassembleInstruction(chunk, offset);
         offset = calc_offset(code.items[offset], offset);
     }
 }
@@ -19,7 +19,7 @@ fn calc_offset(instruction_code: u8, current_offset: usize) usize {
     return current_offset + instruction.num_operands() + 1;
 }
 
-pub fn disassemble_instruction(chunk: *Chunk, offset: usize) void {
+pub fn disassembleInstruction(chunk: *Chunk, offset: usize) void {
     std.debug.print("{d:0>4} ", .{offset});
     const code = chunk.code;
     const lines = chunk.lines;

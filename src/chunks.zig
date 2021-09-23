@@ -33,7 +33,7 @@ pub const Chunk = struct {
     const Self = @This();
     const BytesArray = DynamicArray(u8);
     const ValuesArray = DynamicArray(Value);
-    const LinesArray = DynamicArray(u16);
+    const LinesArray = DynamicArray(usize);
 
     code: BytesArray,
     constants: ValuesArray,
@@ -47,20 +47,20 @@ pub const Chunk = struct {
         };
     }
 
-    pub fn write_chunk(self: *Self, byte: u8, line: u16) !void {
+    pub fn write(self: *Self, byte: u8, line: usize) !void {
         try self.code.append_item(byte);
         try self.lines.append_item(line);
     }
 
-    pub fn free_chunk(self: *Chunk) void {
+    pub fn deinit(self: *Chunk) void {
         self.code.deinit();
         self.constants.deinit();
         self.lines.deinit();
     }
 
-    pub fn add_constant(self: *Self, value: Value) !u8 {
+    pub fn addConstant(self: *Self, value: Value) !u16 {
         try self.constants.append_item(value);
-        return @intCast(u8, self.constants.count - 1);
+        return @intCast(u16, self.constants.count - 1);
     }
 };
 
@@ -72,17 +72,17 @@ test "create a Chunk" {
     }
 
     var chunk = Chunk.init(&gpa.allocator);
-    defer chunk.free_chunk();
+    defer chunk.deinit();
 
-    try chunk.write_chunk(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
     try expect(chunk.code.items[0] == OpCode.op_ret);
 
-    try chunk.write_chunk(OpCode.op_ret);
-    try chunk.write_chunk(OpCode.op_ret);
-    try chunk.write_chunk(OpCode.op_ret);
-    try chunk.write_chunk(OpCode.op_ret);
-    try chunk.write_chunk(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
+    try chunk.write(OpCode.op_ret);
 
     try expect(chunk.code.items[4] == OpCode.op_ret);
-    chunk.free_chunk();
+    chunk.deinit();
 }
