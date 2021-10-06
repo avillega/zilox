@@ -34,6 +34,13 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) void {
     switch (instruction) {
         .op_constant => constant_instruction("OP_CONSTANT", chunk, offset),
         .op_negate => simple_instruction("OP_NEGATE"),
+        .op_not => simple_instruction("OP_NOT"),
+        .op_nil => simple_instruction("OP_NIL"),
+        .op_false => simple_instruction("OP_EQUAL"),
+        .op_equal => simple_instruction("OP_FALSE"),
+        .op_greater => simple_instruction("OP_GREATER"),
+        .op_less => simple_instruction("OP_LESS"),
+        .op_true => simple_instruction("OP_TRUE"),
         .op_add => simple_instruction("OP_ADD"),
         .op_sub => simple_instruction("OP_SUBSTRACT"),
         .op_mul => simple_instruction("OP_MULTIPLY"),

@@ -70,31 +70,31 @@ fn getRule(ty: TokenType) ParseRule {
         .SEMICOLON => ParseRule.init(null, null, .precNone),
         .SLASH => ParseRule.init(null, Parser.binary, .precFactor),
         .STAR => ParseRule.init(null, Parser.binary, .precFactor),
-        .BANG => ParseRule.init(null, null, .precNone),
-        .BANG_EQUAL => ParseRule.init(null, null, .precNone),
+        .BANG => ParseRule.init(Parser.unary, null, .precNone),
+        .BANG_EQUAL => ParseRule.init(null, Parser.binary, .precEquality),
         .EQUAL => ParseRule.init(null, null, .precNone),
-        .EQUAL_EQUAL => ParseRule.init(null, null, .precNone),
-        .GREATER => ParseRule.init(null, null, .precNone),
-        .GREATER_EQUAL => ParseRule.init(null, null, .precNone),
-        .LESS => ParseRule.init(null, null, .precNone),
-        .LESS_EQUAL => ParseRule.init(null, null, .precNone),
+        .EQUAL_EQUAL => ParseRule.init(null, Parser.binary, .precEquality),
+        .GREATER => ParseRule.init(null, Parser.binary, .precComparison),
+        .GREATER_EQUAL => ParseRule.init(null, Parser.binary, .precComparison),
+        .LESS => ParseRule.init(null, Parser.binary, .precComparison),
+        .LESS_EQUAL => ParseRule.init(null, Parser.binary, .precComparison),
         .IDENTIFIER => ParseRule.init(null, null, .precNone),
         .STRING => ParseRule.init(null, null, .precNone),
         .NUMBER => ParseRule.init(Parser.number, null, .precNone),
         .AND => ParseRule.init(null, null, .precNone),
         .CLASS => ParseRule.init(null, null, .precNone),
         .ELSE => ParseRule.init(null, null, .precNone),
-        .FALSE => ParseRule.init(null, null, .precNone),
+        .FALSE => ParseRule.init(Parser.literal, null, .precNone),
         .FOR => ParseRule.init(null, null, .precNone),
         .FUN => ParseRule.init(null, null, .precNone),
         .IF => ParseRule.init(null, null, .precNone),
-        .NIL => ParseRule.init(null, null, .precNone),
+        .NIL => ParseRule.init(Parser.literal, null, .precNone),
         .OR => ParseRule.init(null, null, .precNone),
         .PRINT => ParseRule.init(null, null, .precNone),
         .RETURN => ParseRule.init(null, null, .precNone),
         .SUPER => ParseRule.init(null, null, .precNone),
         .THIS => ParseRule.init(null, null, .precNone),
-        .TRUE => ParseRule.init(null, null, .precNone),
+        .TRUE => ParseRule.init(Parser.literal, null, .precNone),
         .VAR => ParseRule.init(null, null, .precNone),
         .WHILE => ParseRule.init(null, null, .precNone),
         .ERROR => ParseRule.init(null, null, .precNone),
@@ -128,7 +128,7 @@ const Parser = struct {
         }
     }
 
-    pub fn consume(self: *Self, ty: TokenType, message: []const u8) CompileError!void {
+    pub fn consume(self: *Self, ty: TokenType, comptime message: []const u8) CompileError!void {
         if (self.current.ty == ty) {
             try self.advance();
             return;
@@ -167,7 +167,7 @@ const Parser = struct {
 
     fn number(self: *Self) !void {
         const value = std.fmt.parseFloat(f64, self.previous.lexeme) catch unreachable;
-        try self.emitConstant(value);
+        try self.emitConstant(Value{ .number = value });
     }
 
     fn grouping(self: *Self) !void {
@@ -179,7 +179,8 @@ const Parser = struct {
         const operatorType = self.previous.ty;
         try self.parsePrecendece(.precUnary);
         switch (operatorType) {
-            .MINUS => self.emitByte(OpCode.op_negate.toU8()),
+            .BANG => self.emitOpCode(.op_not),
+            .MINUS => self.emitOpCode(.op_negate),
             else => unreachable,
         }
     }
@@ -190,10 +191,25 @@ const Parser = struct {
         try self.parsePrecendece(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1));
 
         switch (operatorType) {
-            .PLUS => self.emitByte(OpCode.op_add.toU8()),
-            .MINUS => self.emitByte(OpCode.op_sub.toU8()),
-            .STAR => self.emitByte(OpCode.op_mul.toU8()),
-            .SLASH => self.emitByte(OpCode.op_div.toU8()),
+            .EQUAL_EQUAL => self.emitOpCode(.op_equal),
+            .GREATER => self.emitOpCode(.op_greater),
+            .LESS => self.emitOpCode(.op_less),
+            .BANG_EQUAL => self.emitTwoOpCodes(.op_equal, .op_not),
+            .GREATER_EQUAL => self.emitTwoOpCodes(.op_less, .op_not),
+            .LESS_EQUAL => self.emitTwoOpCodes(.op_greater, .op_not),
+            .PLUS => self.emitOpCode(.op_add),
+            .MINUS => self.emitOpCode(.op_sub),
+            .STAR => self.emitOpCode(.op_mul),
+            .SLASH => self.emitOpCode(.op_div),
+            else => unreachable,
+        }
+    }
+
+    fn literal(self: *Self) !void {
+        switch (self.previous.ty) {
+            .FALSE => self.emitOpCode(.op_false),
+            .NIL => self.emitOpCode(.op_nil),
+            .TRUE => self.emitOpCode(.op_true),
             else => unreachable,
         }
     }
@@ -210,7 +226,6 @@ const Parser = struct {
         while (@enumToInt(precedence) <= @enumToInt(getRule(self.current.ty).precedence)) {
             try self.advance();
             const rule = getRule(self.previous.ty);
-            std.debug.print("{any}\n", .{rule});
             const infixRule = rule.infix orelse {
                 self.err("Unreachable????");
                 return CompileError.CompileError;
@@ -238,14 +253,22 @@ const Parser = struct {
         return @intCast(u8, constant);
     }
 
-    pub fn emitByte(self: *Self, byte: u8) void {
+    fn emitTwoOpCodes(self: *Self, opCode1: OpCode, opCode2: OpCode) void {
+        self.emitBytes(opCode1.toU8(), opCode2.toU8());
+    }
+
+    fn emitOpCode(self: *Self, opCode: OpCode) void {
+        self.emitByte(opCode.toU8());
+    }
+
+    fn emitByte(self: *Self, byte: u8) void {
         self.currentChunk().write(byte, self.previous.line) catch |err| {
-            std.log.err("Error {any} trying to emit byte", .{err});
+            std.log.err("Error {any} trying to emit byte.", .{err});
             std.process.exit(1);
         };
     }
 
-    pub fn emitBytes(self: *Self, byte1: u8, byte2: u8) void {
+    fn emitBytes(self: *Self, byte1: u8, byte2: u8) void {
         self.emitByte(byte1);
         self.emitByte(byte2);
     }
