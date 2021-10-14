@@ -1,4 +1,5 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const scanner_mod = @import("./scanner.zig");
 const chunks_mod = @import("./chunks.zig");
 const debug_mod = @import("./debug.zig");
@@ -8,6 +9,7 @@ const TokenType = scanner_mod.TokenType;
 const Chunk = chunks_mod.Chunk;
 const OpCode = chunks_mod.OpCode;
 const Value = @import("./value.zig").Value;
+const Obj = @import("./object.zig").Obj;
 
 const DEBUG_PRINT_CODE = true;
 
@@ -27,9 +29,9 @@ const Precedence = enum {
     precPrimary,
 };
 
-pub fn compile(source: []const u8, chunk: *Chunk) !void {
+pub fn compile(source: []const u8, chunk: *Chunk, allocator: *Allocator) !void {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(&scanner, chunk);
+    var parser = Parser.init(&scanner, chunk, allocator);
     try parser.advance();
     try parser.expression();
 
@@ -79,7 +81,7 @@ fn getRule(ty: TokenType) ParseRule {
         .LESS => ParseRule.init(null, Parser.binary, .precComparison),
         .LESS_EQUAL => ParseRule.init(null, Parser.binary, .precComparison),
         .IDENTIFIER => ParseRule.init(null, null, .precNone),
-        .STRING => ParseRule.init(null, null, .precNone),
+        .STRING => ParseRule.init(Parser.string, null, .precNone),
         .NUMBER => ParseRule.init(Parser.number, null, .precNone),
         .AND => ParseRule.init(null, null, .precNone),
         .CLASS => ParseRule.init(null, null, .precNone),
@@ -109,11 +111,13 @@ const Parser = struct {
     panicMode: bool = false,
     scanner: *Scanner,
     compilingChunk: *Chunk,
+    allocator: *Allocator,
 
-    pub fn init(scanner: *Scanner, chunk: *Chunk) Parser {
+    pub fn init(scanner: *Scanner, chunk: *Chunk, allocator: *Allocator) Parser {
         return .{
             .scanner = scanner,
             .compilingChunk = chunk,
+            .allocator = allocator,
         };
     }
 
@@ -166,8 +170,14 @@ const Parser = struct {
     }
 
     fn number(self: *Self) !void {
-        const value = std.fmt.parseFloat(f64, self.previous.lexeme) catch unreachable;
-        try self.emitConstant(Value{ .number = value });
+        const x = std.fmt.parseFloat(f64, self.previous.lexeme) catch unreachable;
+        try self.emitConstant(Value.fromNumber(x));
+    }
+
+    fn string(self: *Self) !void {
+        const lexemeLen = self.previous.lexeme.len;
+        const str = Obj.String.copy(self.allocator, self.previous.lexeme[1 .. lexemeLen - 1]);
+        try self.emitConstant(str.obj.toValue());
     }
 
     fn grouping(self: *Self) !void {
@@ -241,10 +251,7 @@ const Parser = struct {
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
-        const constant = self.currentChunk().addConstant(value) catch {
-            self.err("Err adding constant.");
-            return CompileError.CompileError;
-        };
+        const constant = self.currentChunk().addConstant(value);
         if (constant > std.math.maxInt(u8)) {
             self.err("Too many constants in a chunk.");
             return CompileError.TooManyConstants;
@@ -262,10 +269,7 @@ const Parser = struct {
     }
 
     fn emitByte(self: *Self, byte: u8) void {
-        self.currentChunk().write(byte, self.previous.line) catch |err| {
-            std.log.err("Error {any} trying to emit byte.", .{err});
-            std.process.exit(1);
-        };
+        self.currentChunk().write(byte, self.previous.line);
     }
 
     fn emitBytes(self: *Self, byte1: u8, byte2: u8) void {
@@ -290,7 +294,7 @@ const Parser = struct {
 };
 
 // Function used to test the scanner.
-fn scanner_test(source: []const u8) void {
+fn scannerTest(source: []const u8) void {
     var scanner = Scanner.init(source);
     var line: u64 = 0;
 

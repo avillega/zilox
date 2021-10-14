@@ -54,9 +54,9 @@ pub const Chunk = struct {
         };
     }
 
-    pub fn write(self: *Self, byte: u8, line: usize) !void {
-        try self.code.append_item(byte);
-        try self.lines.append_item(line);
+    pub fn write(self: *Self, byte: u8, line: usize) void {
+        self.code.appendItem(byte);
+        self.lines.appendItem(line);
     }
 
     pub fn deinit(self: *Chunk) void {
@@ -65,8 +65,8 @@ pub const Chunk = struct {
         self.lines.deinit();
     }
 
-    pub fn addConstant(self: *Self, value: Value) !u16 {
-        try self.constants.append_item(value);
+    pub fn addConstant(self: *Self, value: Value) u16 {
+        self.constants.appendItem(value);
         return @intCast(u16, self.constants.count - 1);
     }
 };
@@ -81,14 +81,14 @@ test "create a Chunk" {
     var chunk = Chunk.init(&gpa.allocator);
     defer chunk.deinit();
 
-    try chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
     try expect(chunk.code.items[0] == OpCode.op_ret);
 
-    try chunk.write(OpCode.op_ret);
-    try chunk.write(OpCode.op_ret);
-    try chunk.write(OpCode.op_ret);
-    try chunk.write(OpCode.op_ret);
-    try chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret);
 
     try expect(chunk.code.items[4] == OpCode.op_ret);
     chunk.deinit();

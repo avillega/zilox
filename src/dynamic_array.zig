@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const expect = std.testing.expect;
 
-
 pub fn DynamicArray(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -21,12 +20,10 @@ pub fn DynamicArray(comptime T: type) type {
             };
         }
 
-        pub fn append_item(self: *Self, item: T) !void {
+        pub fn appendItem(self: *Self, item: T) void {
             if (self.capacity < self.count + 1) {
-                const old_capacity = self.capacity;
-                self.capacity = if (old_capacity < 8) 8 else old_capacity * 2;
-
-                self.items = try reallocate(self.allocator, self.items, old_capacity, self.capacity);
+                self.capacity = growCapacity(self.capacity);
+                self.items = self.allocator.realloc(self.items, self.capacity) catch @panic("Error allocating new memory");
             }
             self.items[self.count] = item;
             self.count += 1;
@@ -39,18 +36,10 @@ pub fn DynamicArray(comptime T: type) type {
             self.* = Self.init(self.allocator);
         }
 
-        fn grow_capacity(capacity: usize) usize {
+        fn growCapacity(capacity: usize) usize {
             return if (capacity < 8) 8 else capacity * 2;
         }
     };
-}
-
-fn reallocate(allocator: *Allocator, old_mem: anytype, old_size: usize, new_size: usize) !@TypeOf(old_mem) {
-    if (old_size == 0) {
-        return try allocator.alloc(@typeInfo(@TypeOf(old_mem)).Pointer.child, new_size);
-    } else {
-        return try allocator.realloc(old_mem, new_size);
-    }
 }
 
 test "create a DynamicArray" {
@@ -63,24 +52,24 @@ test "create a DynamicArray" {
     var arr = DynamicArray(u8).init(&gpa.allocator);
     defer arr.deinit();
 
-    try arr.append_item(5);
+    arr.appendItem(5);
     try expect(arr.items[0] == 5);
     try expect(arr.count == 1);
 
-    try arr.append_item(1);
-    try arr.append_item(2);
-    try arr.append_item(3);
-    try arr.append_item(4);
-    try arr.append_item(5);
-    try arr.append_item(6);
-    try arr.append_item(7);
-    try arr.append_item(8);
-    try arr.append_item(9);
-    try arr.append_item(10);
-    try arr.append_item(11);
-    try arr.append_item(12);
-    try arr.append_item(13);
-    try arr.append_item(14);
+    arr.appendItem(1);
+    arr.appendItem(2);
+    arr.appendItem(3);
+    arr.appendItem(4);
+    arr.appendItem(5);
+    arr.appendItem(6);
+    arr.appendItem(7);
+    arr.appendItem(8);
+    arr.appendItem(9);
+    arr.appendItem(10);
+    arr.appendItem(11);
+    arr.appendItem(12);
+    arr.appendItem(13);
+    arr.appendItem(14);
     try expect(arr.items[10] == 10);
     arr.deinit();
 

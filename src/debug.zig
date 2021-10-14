@@ -32,31 +32,29 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) void {
 
     const instruction = @intToEnum(OpCode, code.items[offset]);
     switch (instruction) {
-        .op_constant => constant_instruction("OP_CONSTANT", chunk, offset),
-        .op_negate => simple_instruction("OP_NEGATE"),
-        .op_not => simple_instruction("OP_NOT"),
-        .op_nil => simple_instruction("OP_NIL"),
-        .op_false => simple_instruction("OP_EQUAL"),
-        .op_equal => simple_instruction("OP_FALSE"),
-        .op_greater => simple_instruction("OP_GREATER"),
-        .op_less => simple_instruction("OP_LESS"),
-        .op_true => simple_instruction("OP_TRUE"),
-        .op_add => simple_instruction("OP_ADD"),
-        .op_sub => simple_instruction("OP_SUBSTRACT"),
-        .op_mul => simple_instruction("OP_MULTIPLY"),
-        .op_div => simple_instruction("OP_DIVIDE"),
-        .op_ret => simple_instruction("OP_RETURN"),
+        .op_constant => constantInstruction("OP_CONSTANT", chunk, offset),
+        .op_negate => simpleInstruction("OP_NEGATE"),
+        .op_not => simpleInstruction("OP_NOT"),
+        .op_nil => simpleInstruction("OP_NIL"),
+        .op_false => simpleInstruction("OP_EQUAL"),
+        .op_equal => simpleInstruction("OP_FALSE"),
+        .op_greater => simpleInstruction("OP_GREATER"),
+        .op_less => simpleInstruction("OP_LESS"),
+        .op_true => simpleInstruction("OP_TRUE"),
+        .op_add => simpleInstruction("OP_ADD"),
+        .op_sub => simpleInstruction("OP_SUBSTRACT"),
+        .op_mul => simpleInstruction("OP_MULTIPLY"),
+        .op_div => simpleInstruction("OP_DIVIDE"),
+        .op_ret => simpleInstruction("OP_RETURN"),
     }
 }
 
-fn simple_instruction(comptime name: []const u8) void {
+fn simpleInstruction(comptime name: []const u8) void {
     std.debug.print("{s}\n", .{name});
 }
 
-fn constant_instruction(name: []const u8, chunk: *Chunk, offset: usize) void {
+fn constantInstruction(name: []const u8, chunk: *Chunk, offset: usize) void {
     const constant_idx = chunk.code.items[offset + 1];
     const constant = chunk.constants.items[constant_idx];
-    std.debug.print("{s: <16} {d: >4} '", .{ name, constant_idx });
-    values.printValue(constant);
-    std.debug.print("'\n", .{});
+    std.debug.print("{s: <16} {d: >4} '{}'\n", .{ name, constant_idx, constant });
 }

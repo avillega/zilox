@@ -48,7 +48,7 @@ pub const Vm = struct {
         var chunk = Chunk.init(allocator);
         defer chunk.deinit();
 
-        compiler.compile(source, &chunk) catch return InterpretError.CompileError;
+        compiler.compile(source, &chunk, allocator) catch return InterpretError.CompileError;
         self.chunk = &chunk;
         self.ip = 0;
 
@@ -58,27 +58,27 @@ pub const Vm = struct {
     fn run(self: *Self) InterpretError!void {
         while (true) {
             if (comptime DEBUG_TRACE_EXECUTION) {
-                print_stack(self.stack[0..self.stackTop]);
+                printStack(self.stack[0..self.stackTop]);
                 debug.disassembleInstruction(self.chunk, self.ip);
             }
 
-            const instruction = self.read_instruction();
+            const instruction = self.readInstruction();
             try switch (instruction) {
                 .op_constant => {
-                    const constant = self.read_constant();
+                    const constant = self.readConstant();
                     self.push(constant);
                 },
                 .op_negate => {
-                    if (self.peek(0) == .number) {
+                    if (!self.peek(0).isNumber()) {
                         self.runtimeErr("Operand must be a number", .{});
                         return InterpretError.RuntimeError;
                     }
-                    self.push(Value{ .number = -self.pop().number });
+                    self.push(Value.fromNumber(-self.pop().asNumber()));
                 },
-                .op_not => self.push(Value{ .boolean = isFalsey(self.pop()) }),
-                .op_nil => self.push(Value.nil),
-                .op_false => self.push(Value{ .boolean = false }),
-                .op_true => self.push(Value{ .boolean = true }),
+                .op_not => self.push(Value.fromBool(self.pop().isFalsey())),
+                .op_nil => self.push(Value.nil()),
+                .op_false => self.push(Value.fromBool(false)),
+                .op_true => self.push(Value.fromBool(true)),
                 .op_add => self.binary_op(.add),
                 .op_sub => self.binary_op(.sub),
                 .op_mul => self.binary_op(.mul),
@@ -88,11 +88,10 @@ pub const Vm = struct {
                 .op_equal => {
                     const b = self.pop();
                     const a = self.pop();
-                    self.push(Value{ .boolean = valuesEq(a, b) });
+                    self.push(Value.fromBool(a.equals(b)));
                 },
                 .op_ret => {
-                    values.printValue(self.pop());
-                    print("\n", .{});
+                    print("{}\n", .{self.pop()});
                     return;
                 },
             };
@@ -112,13 +111,13 @@ pub const Vm = struct {
     }
 
     fn binary_op(self: *Self, comptime op: BinaryOp) InterpretError!void {
-        if (self.peek(0) != .number or self.peek(1) != .number) {
+        if (!self.peek(0).isNumber() or !self.peek(1).isNumber()) {
             self.runtimeErr("Operands must be numbers.", .{});
             return InterpretError.RuntimeError;
         }
 
-        const b = self.pop().number;
-        const a = self.pop().number;
+        const b = self.pop().asNumber();
+        const a = self.pop().asNumber();
         const result = switch (op) {
             .add => a + b,
             .sub => a - b,
@@ -128,8 +127,8 @@ pub const Vm = struct {
             .lt => a < b,
         };
         switch (@TypeOf(result)) {
-            bool => self.push(Value{ .boolean = result }),
-            f64 => self.push(Value{ .number = result }),
+            bool => self.push(Value.fromBool(result)),
+            f64 => self.push(Value.fromNumber(result)),
             else => unreachable,
         }
     }
@@ -152,28 +151,20 @@ pub const Vm = struct {
         self.resetStack();
     }
 
-    inline fn read_instruction(self: *Self) OpCode {
+    inline fn readInstruction(self: *Self) OpCode {
         const instruction = @intToEnum(OpCode, self.chunk.code.items[self.ip]);
         self.ip += 1;
         return instruction;
     }
 
-    inline fn read_constant(self: *Self) Value {
+    inline fn readConstant(self: *Self) Value {
         const constant = self.chunk.constants.items[self.chunk.code.items[self.ip]];
         self.ip += 1;
         return constant;
     }
 };
 
-fn isFalsey(value: Value) bool {
-    return switch (value) {
-        .nil => true,
-        .boolean => |b| !b,
-        else => false,
-    };
-}
-
-fn print_stack(stack: []Value) void {
+fn printStack(stack: []Value) void {
     print("          ", .{});
     for (stack) |value| {
         print("[", .{});
