@@ -81,15 +81,15 @@ test "create a Chunk" {
     var chunk = Chunk.init(&gpa.allocator);
     defer chunk.deinit();
 
-    chunk.write(OpCode.op_ret);
-    try expect(chunk.code.items[0] == OpCode.op_ret);
+    chunk.write(OpCode.op_ret.toU8(), 1);
+    try expect(chunk.code.items[0] == OpCode.op_ret.toU8());
 
-    chunk.write(OpCode.op_ret);
-    chunk.write(OpCode.op_ret);
-    chunk.write(OpCode.op_ret);
-    chunk.write(OpCode.op_ret);
-    chunk.write(OpCode.op_ret);
+    chunk.write(OpCode.op_ret.toU8(), 1);
+    chunk.write(OpCode.op_ret.toU8(), 1);
+    chunk.write(OpCode.op_ret.toU8(), 1);
+    chunk.write(OpCode.op_ret.toU8(), 1);
+    chunk.write(OpCode.op_ret.toU8(), 1);
 
-    try expect(chunk.code.items[4] == OpCode.op_ret);
+    try expect(chunk.code.items[4] == OpCode.op_ret.toU8());
     chunk.deinit();
 }

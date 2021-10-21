@@ -15,11 +15,11 @@ pub fn main() anyerror!u8 {
     const args = try process.argsAlloc(gpa);
     defer process.argsFree(gpa, args);
 
-    var vm = Vm.init();
+    var vm = Vm.init(gpa);
     defer vm.deinit();
 
     switch (args.len) {
-        1 => try repl(&vm, gpa),
+        1 => try repl(&vm),
         2 => try runFile(args[1], &vm, gpa),
         else => {
             std.log.err("Usage: zilox [path]\n", .{});
@@ -30,7 +30,7 @@ pub fn main() anyerror!u8 {
     return 0;
 }
 
-fn repl(vm: *Vm, allocator: *Allocator) !void {
+fn repl(vm: *Vm) !void {
     const in = std.io.getStdIn();
     const stdout = std.io.getStdOut();
 
@@ -45,7 +45,7 @@ fn repl(vm: *Vm, allocator: *Allocator) !void {
             break;
         };
 
-        vm.interpret(line, allocator) catch {};
+        vm.interpret(line) catch {};
     }
 }
 
@@ -53,7 +53,7 @@ fn runFile(fileName: []const u8, vm: *Vm, allocator: *Allocator) !void {
     const source = readFile(fileName, allocator);
     defer allocator.free(source);
 
-    try vm.interpret(source, allocator);
+    try vm.interpret(source);
 }
 
 fn readFile(path: []const u8, allocator: *Allocator) []const u8 {

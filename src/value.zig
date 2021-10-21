@@ -5,74 +5,76 @@ const Obj = @import("./object.zig").Obj;
 
 pub const Value = union(enum) {
     const Self = @This();
-    Nil,
-    Bool: bool,
-    Number: f64,
-    Obj: *Obj,
+    nil,
+    boolean: bool,
+    number: f64,
+    obj: *Obj,
 
     pub fn isNil(self: Self) bool {
-        return self == .Nil;
+        return self == .nil;
     }
 
     pub fn isBool(self: Self) bool {
-        return self == .Bool;
+        return self == .boolean;
     }
 
     pub fn isNumber(self: Self) bool {
-        return self == .Number;
+        return self == .number;
     }
 
     pub fn isObj(self: Self) bool {
-        return self == .Obj;
+        return self == .obj;
+    }
+
+    pub fn isString(self: Self) bool {
+        return self.isObj() and self.asObj().is(.string);
     }
 
     pub fn asBool(self: Self) bool {
         std.debug.assert(self.isBool());
-        return self.Bool;
+        return self.boolean;
     }
 
     pub fn asNumber(self: Self) f64 {
         std.debug.assert(self.isNumber());
-        return self.Number;
+        return self.number;
     }
 
     pub fn asObj(self: Self) *Obj {
         std.debug.assert(self.isObj());
-        return self.Obj;
-    }
-
-    pub fn nil() Self {
-        return Value.Nil;
+        return self.obj;
     }
 
     pub fn fromBool(val: bool) Self {
-        return Value{ .Bool = val };
+        return Value{ .boolean = val };
     }
 
     pub fn fromNumber(val: f64) Self {
-        return Value{ .Number = val };
+        return Value{ .number = val };
     }
 
     pub fn fromObj(val: *Obj) Self {
-        return Value{ .Obj = val };
+        return Value{ .obj = val };
     }
 
     pub fn equals(valA: Self, valB: Self) bool {
         return switch (valA) {
-            .Nil => switch (valB) {
-                .Nil => true,
+            .nil => switch (valB) {
+                .nil => true,
                 else => false,
             },
-            .Bool => |a| switch (valB) {
-                .Bool => |b| a == b,
+            .boolean => |a| switch (valB) {
+                .boolean => |b| a == b,
                 else => false,
             },
-            .Number => |a| switch (valB) {
-                .Number => |b| a == b,
+            .number => |a| switch (valB) {
+                .number => |b| a == b,
                 else => false,
             },
-            .Obj => |a| switch (valB) {
-                .Obj => |b| a == b,
+            .obj => |a| switch (valB) {
+                .obj => |b| {
+                    return a == b;
+                },
                 else => false,
             },
         };
@@ -80,10 +82,10 @@ pub const Value = union(enum) {
 
     pub fn isFalsey(self: Self) bool {
         return switch (self) {
-            .Nil => true,
-            .Bool => |b| !b,
-            .Number => false,
-            .Obj => false,
+            .nil => true,
+            .boolean => |b| !b,
+            .number => false,
+            .obj => false,
         };
     }
 
@@ -91,29 +93,20 @@ pub const Value = union(enum) {
         _ = options;
         _ = fmt;
         switch (self) {
-            .Number => |value| try writer.print("{d}", .{value}),
-            .Bool => |value| try writer.print("{}", .{value}),
-            .Nil => try writer.print("nil", .{}),
-            .Obj => |obj| try printObj(obj, writer),
+            .number => |value| try writer.print("{d}", .{value}),
+            .boolean => |value| try writer.print("{}", .{value}),
+            .nil => try writer.print("nil", .{}),
+            .obj => |obj| try printObj(obj, writer),
         }
     }
 };
 
 fn printObj(obj: *Obj, writer: anytype) !void {
-    switch (obj.objType) {
-        .String => try writer.print("{s}", .{obj.asString().bytes}),
-        else => unreachable,
+    switch (obj.obj_type) {
+        .string => try writer.print("{s}", .{obj.asString().bytes}),
     }
 }
 
 test "size of a Value" {
     try expect(@sizeOf(Value) == 16);
-}
-
-test "use of union with tags" {
-    const v = Value{ .boolean = true };
-    try expect(v == .boolean);
-    try expect(v != .number);
-    try expect(v != .nil);
-    try expect(v.boolean);
 }

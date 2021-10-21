@@ -10,11 +10,11 @@ pub fn dissasembleChunk(chunk: *Chunk, comptime name: []const u8) void {
     var offset: usize = 0;
     while (offset < code.count) {
         disassembleInstruction(chunk, offset);
-        offset = calc_offset(code.items[offset], offset);
+        offset = calcOffset(code.items[offset], offset);
     }
 }
 
-fn calc_offset(instruction_code: u8, current_offset: usize) usize {
+fn calcOffset(instruction_code: u8, current_offset: usize) usize {
     const instruction = @intToEnum(OpCode, instruction_code);
     return current_offset + instruction.num_operands() + 1;
 }

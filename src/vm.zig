@@ -1,18 +1,19 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const chunks = @import("./chunks.zig");
 const values = @import("./value.zig");
 const debug = @import("./debug.zig");
 const compiler = @import("./compiler.zig");
-const Allocator = std.mem.Allocator;
+const Obj = @import("object.zig").Obj;
 const Value = values.Value;
 const Chunk = chunks.Chunk;
 const OpCode = chunks.OpCode;
-const print = std.debug.print;
 const valuesEq = values.valuesEq;
+const Table = @import("./table.zig").Table;
 
-const DEBUG_TRACE_EXECUTION = false;
-
-const STACK_MAX = 256;
+const debug_trace_execution = false;
+const debug_gc = false;
+const stack_max = 256;
 
 pub const InterpretError = error{
     CompileError,
@@ -20,7 +21,6 @@ pub const InterpretError = error{
 };
 
 const BinaryOp = enum {
-    add,
     sub,
     div,
     mul,
@@ -32,23 +32,29 @@ pub const Vm = struct {
     const Self = @This();
     chunk: *Chunk,
     ip: usize,
-    stack: [STACK_MAX]Value,
-    stackTop: usize,
+    stack: [stack_max]Value,
+    stack_top: usize,
+    allocator: *Allocator,
+    objects: ?*Obj,
+    strings: Table,
 
-    pub fn init() Self {
+    pub fn init(allocator: *Allocator) Self {
         return Self{
             .ip = 0,
-            .stackTop = 0,
+            .stack_top = 0,
             .chunk = undefined,
             .stack = undefined,
+            .allocator = allocator,
+            .objects = null,
+            .strings = Table.init(allocator),
         };
     }
 
-    pub fn interpret(self: *Self, source: []const u8, allocator: *Allocator) InterpretError!void {
-        var chunk = Chunk.init(allocator);
+    pub fn interpret(self: *Self, source: []const u8) InterpretError!void {
+        var chunk = Chunk.init(self.allocator);
         defer chunk.deinit();
 
-        compiler.compile(source, &chunk, allocator) catch return InterpretError.CompileError;
+        compiler.compile(source, &chunk, self) catch return InterpretError.CompileError;
         self.chunk = &chunk;
         self.ip = 0;
 
@@ -57,8 +63,8 @@ pub const Vm = struct {
 
     fn run(self: *Self) InterpretError!void {
         while (true) {
-            if (comptime DEBUG_TRACE_EXECUTION) {
-                printStack(self.stack[0..self.stackTop]);
+            if (comptime debug_trace_execution) {
+                printStack(self.stack[0..self.stack_top]);
                 debug.disassembleInstruction(self.chunk, self.ip);
             }
 
@@ -76,22 +82,18 @@ pub const Vm = struct {
                     self.push(Value.fromNumber(-self.pop().asNumber()));
                 },
                 .op_not => self.push(Value.fromBool(self.pop().isFalsey())),
-                .op_nil => self.push(Value.nil()),
+                .op_nil => self.push(Value.nil),
                 .op_false => self.push(Value.fromBool(false)),
                 .op_true => self.push(Value.fromBool(true)),
-                .op_add => self.binary_op(.add),
+                .op_add => self.add(),
                 .op_sub => self.binary_op(.sub),
                 .op_mul => self.binary_op(.mul),
                 .op_div => self.binary_op(.div),
                 .op_greater => self.binary_op(.gt),
                 .op_less => self.binary_op(.lt),
-                .op_equal => {
-                    const b = self.pop();
-                    const a = self.pop();
-                    self.push(Value.fromBool(a.equals(b)));
-                },
+                .op_equal => self.equal(),
                 .op_ret => {
-                    print("{}\n", .{self.pop()});
+                    std.debug.print("{}\n", .{self.pop()});
                     return;
                 },
             };
@@ -99,14 +101,14 @@ pub const Vm = struct {
     }
 
     fn resetStack(self: *Self) void {
-        self.stackTop = 0;
+        self.stack_top = 0;
     }
 
     fn runtimeErr(self: *Self, comptime fmt: []const u8, args: anytype) void {
-        const errWriter = std.io.getStdErr().writer();
-        errWriter.print(fmt ++ "\n", args) catch {};
+        const err_writer = std.io.getStdErr().writer();
+        err_writer.print(fmt ++ "\n", args) catch {};
 
-        errWriter.print("[line {d}] in script.\n", .{self.chunk.lines.items[self.ip]}) catch {};
+        err_writer.print("[line {d}] in script.\n", .{self.chunk.lines.items[self.ip]}) catch {};
         self.resetStack();
     }
 
@@ -119,7 +121,6 @@ pub const Vm = struct {
         const b = self.pop().asNumber();
         const a = self.pop().asNumber();
         const result = switch (op) {
-            .add => a + b,
             .sub => a - b,
             .mul => a * b,
             .div => a / b,
@@ -133,22 +134,45 @@ pub const Vm = struct {
         }
     }
 
+    inline fn equal(self: *Self) void {
+        const b = self.pop();
+        const a = self.pop();
+        self.push(Value.fromBool(a.equals(b)));
+    }
+
+    inline fn add(self: *Self) !void {
+        if (self.peek(0).isString() and self.peek(1).isString()) {
+            self.concat();
+        } else if (self.peek(0).isNumber() and self.peek(1).isNumber()) {
+            const b = self.pop().asNumber();
+            const a = self.pop().asNumber();
+            self.push(Value.fromNumber(a + b));
+        } else {
+            self.runtimeErr("Operands must be two numbers or two strings.", .{});
+            return InterpretError.RuntimeError;
+        }
+    }
+
+    inline fn concat(self: *Self) void {
+        const b = self.pop().asObj().asString();
+        const a = self.pop().asObj().asString();
+        const result = std.mem.concat(self.allocator, u8, &[_][]const u8{ a.bytes, b.bytes }) catch unreachable;
+        const str = Obj.String.take(self, result);
+        self.push(str.obj.toValue());
+    }
+
     inline fn push(self: *Self, value: Value) void {
-        self.stack[self.stackTop] = value;
-        self.stackTop += 1;
+        self.stack[self.stack_top] = value;
+        self.stack_top += 1;
     }
 
     inline fn peek(self: *Self, distance: usize) Value {
-        return self.stack[self.stackTop - distance - 1];
+        return self.stack[self.stack_top - distance - 1];
     }
 
     fn pop(self: *Self) Value {
-        self.stackTop -= 1;
-        return self.stack[self.stackTop];
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.resetStack();
+        self.stack_top -= 1;
+        return self.stack[self.stack_top];
     }
 
     inline fn readInstruction(self: *Self) OpCode {
@@ -162,14 +186,39 @@ pub const Vm = struct {
         self.ip += 1;
         return constant;
     }
+
+    pub fn deinit(self: *Self) void {
+        if (comptime debug_gc) {
+            std.debug.print("Uninitializing VM\n", .{});
+        }
+        self.resetStack();
+        self.freeObjects();
+        self.strings.deinit();
+    }
+
+    fn freeObjects(self: *Self) void {
+        var obj = self.objects;
+        var total_objects: u64 = 0;
+        while (obj) |object| {
+            if (comptime debug_gc) {
+                total_objects += 1;
+            }
+            const next = object.next;
+            object.destroy(self);
+            obj = next;
+        }
+        if (comptime debug_gc) {
+            std.debug.print("Objects freed {d}\n", .{total_objects});
+        }
+    }
 };
 
 fn printStack(stack: []Value) void {
-    print("          ", .{});
+    std.debug.print("          ", .{});
     for (stack) |value| {
-        print("[", .{});
+        std.debug.print("[", .{});
         values.printValue(value);
-        print("]", .{});
+        std.debug.print("]", .{});
     }
-    print("\n", .{});
+    std.debug.print("\n", .{});
 }

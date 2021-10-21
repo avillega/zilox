@@ -10,8 +10,9 @@ const Chunk = chunks_mod.Chunk;
 const OpCode = chunks_mod.OpCode;
 const Value = @import("./value.zig").Value;
 const Obj = @import("./object.zig").Obj;
+const Vm = @import("vm.zig").Vm;
 
-const DEBUG_PRINT_CODE = true;
+const debug_print_code = true;
 
 const CompileError = error{ CompileError, TooManyConstants };
 
@@ -29,9 +30,9 @@ const Precedence = enum {
     precPrimary,
 };
 
-pub fn compile(source: []const u8, chunk: *Chunk, allocator: *Allocator) !void {
+pub fn compile(source: []const u8, chunk: *Chunk, vm: *Vm) !void {
     var scanner = Scanner.init(source);
-    var parser = Parser.init(&scanner, chunk, allocator);
+    var parser = Parser.init(&scanner, chunk, vm);
     try parser.advance();
     try parser.expression();
 
@@ -111,13 +112,13 @@ const Parser = struct {
     panicMode: bool = false,
     scanner: *Scanner,
     compilingChunk: *Chunk,
-    allocator: *Allocator,
+    vm: *Vm,
 
-    pub fn init(scanner: *Scanner, chunk: *Chunk, allocator: *Allocator) Parser {
+    pub fn init(scanner: *Scanner, chunk: *Chunk, vm: *Vm) Parser {
         return .{
             .scanner = scanner,
             .compilingChunk = chunk,
-            .allocator = allocator,
+            .vm = vm,
         };
     }
 
@@ -175,8 +176,8 @@ const Parser = struct {
     }
 
     fn string(self: *Self) !void {
-        const lexemeLen = self.previous.lexeme.len;
-        const str = Obj.String.copy(self.allocator, self.previous.lexeme[1 .. lexemeLen - 1]);
+        const lexeme_len = self.previous.lexeme.len;
+        const str = Obj.String.copy(self.vm, self.previous.lexeme[1 .. lexeme_len - 1]);
         try self.emitConstant(str.obj.toValue());
     }
 
@@ -226,28 +227,28 @@ const Parser = struct {
 
     fn parsePrecendece(self: *Self, precedence: Precedence) !void {
         try self.advance();
-        const prefixRule = getRule(self.previous.ty).prefix orelse {
+        const prefix_rule = getRule(self.previous.ty).prefix orelse {
             self.err("Expect expression.");
             return CompileError.CompileError;
         };
 
-        try prefixRule(self);
+        try prefix_rule(self);
 
         while (@enumToInt(precedence) <= @enumToInt(getRule(self.current.ty).precedence)) {
             try self.advance();
             const rule = getRule(self.previous.ty);
-            const infixRule = rule.infix orelse {
+            const infix_rule = rule.infix orelse {
                 self.err("Unreachable????");
                 return CompileError.CompileError;
             };
 
-            try infixRule(self);
+            try infix_rule(self);
         }
     }
 
     fn emitConstant(self: *Self, value: Value) !void {
-        const constIdx = try self.makeConstant(value);
-        self.emitBytes(OpCode.op_constant.toU8(), constIdx);
+        const const_idx = try self.makeConstant(value);
+        self.emitBytes(OpCode.op_constant.toU8(), const_idx);
     }
 
     fn makeConstant(self: *Self, value: Value) !u8 {
@@ -260,8 +261,8 @@ const Parser = struct {
         return @intCast(u8, constant);
     }
 
-    fn emitTwoOpCodes(self: *Self, opCode1: OpCode, opCode2: OpCode) void {
-        self.emitBytes(opCode1.toU8(), opCode2.toU8());
+    fn emitTwoOpCodes(self: *Self, op_code1: OpCode, op_code2: OpCode) void {
+        self.emitBytes(op_code1.toU8(), op_code2.toU8());
     }
 
     fn emitOpCode(self: *Self, opCode: OpCode) void {
@@ -279,7 +280,7 @@ const Parser = struct {
 
     pub fn endCompiler(self: *Self) void {
         self.emitReturn();
-        if (comptime DEBUG_PRINT_CODE) {
+        if (comptime debug_print_code) {
             debug_mod.dissasembleChunk(self.currentChunk(), "code");
         }
     }
