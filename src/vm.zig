@@ -12,7 +12,7 @@ const valuesEq = values.valuesEq;
 const Table = @import("./table.zig").Table;
 
 const debug_trace_execution = false;
-const debug_gc = false;
+const debug_gc = true;
 const stack_max = 256;
 
 pub const InterpretError = error{
@@ -37,6 +37,7 @@ pub const Vm = struct {
     allocator: *Allocator,
     objects: ?*Obj,
     strings: Table,
+    globals: Table,
 
     pub fn init(allocator: *Allocator) Self {
         return Self{
@@ -47,6 +48,7 @@ pub const Vm = struct {
             .allocator = allocator,
             .objects = null,
             .strings = Table.init(allocator),
+            .globals = Table.init(allocator),
         };
     }
 
@@ -92,10 +94,12 @@ pub const Vm = struct {
                 .op_greater => self.binary_op(.gt),
                 .op_less => self.binary_op(.lt),
                 .op_equal => self.equal(),
-                .op_ret => {
-                    std.debug.print("{}\n", .{self.pop()});
-                    return;
-                },
+                .op_print => self.printOperation(),
+                .op_define_gloabl => self.defineGlobal(),
+                .op_get_global => self.getGlobal(),
+                .op_set_global => self.setGlobal(),
+                .op_pop => _ = self.pop(),
+                .op_ret => return,
             };
         }
     }
@@ -110,6 +114,35 @@ pub const Vm = struct {
 
         err_writer.print("[line {d}] in script.\n", .{self.chunk.lines.items[self.ip]}) catch {};
         self.resetStack();
+    }
+
+    inline fn printOperation(self: *Self) void {
+        const stdin_writer = std.io.getStdOut().writer();
+        stdin_writer.print("{}\n", .{self.pop()}) catch @panic("Panic at printOperation\n");
+    }
+
+    inline fn defineGlobal(self: *Self) void {
+        const name = self.readConstant().asObj().asString();
+        _ = self.globals.set(name, self.peek(0));
+        _ = self.pop();
+    }
+
+    inline fn getGlobal(self: *Self) !void {
+        const name = self.readConstant().asObj().asString();
+        const value = self.globals.get(name) orelse {
+            self.runtimeErr("Undefined variable {s}.\n", .{name.bytes});
+            return InterpretError.RuntimeError;
+        };
+        self.push(value.*);
+    }
+
+    inline fn setGlobal(self: *Self) !void {
+        const name = self.readConstant().asObj().asString();
+        if (self.globals.set(name, self.peek(0))) {
+            _ = self.globals.delete(name);
+            self.runtimeErr("Undefined variable '{s}'.", .{name.bytes});
+            return InterpretError.RuntimeError;
+        }
     }
 
     fn binary_op(self: *Self, comptime op: BinaryOp) InterpretError!void {
@@ -193,6 +226,7 @@ pub const Vm = struct {
         }
         self.resetStack();
         self.freeObjects();
+        self.globals.deinit();
         self.strings.deinit();
     }
 
@@ -216,9 +250,7 @@ pub const Vm = struct {
 fn printStack(stack: []Value) void {
     std.debug.print("          ", .{});
     for (stack) |value| {
-        std.debug.print("[", .{});
-        values.printValue(value);
-        std.debug.print("]", .{});
+        std.debug.print("[{}]", .{value});
     }
     std.debug.print("\n", .{});
 }

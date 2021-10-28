@@ -20,7 +20,7 @@ pub fn main() anyerror!u8 {
 
     switch (args.len) {
         1 => try repl(&vm),
-        2 => try runFile(args[1], &vm, gpa),
+        2 => runFile(args[1], &vm, gpa),
         else => {
             std.log.err("Usage: zilox [path]\n", .{});
             process.exit(64);
@@ -49,11 +49,11 @@ fn repl(vm: *Vm) !void {
     }
 }
 
-fn runFile(fileName: []const u8, vm: *Vm, allocator: *Allocator) !void {
+fn runFile(fileName: []const u8, vm: *Vm, allocator: *Allocator) void {
     const source = readFile(fileName, allocator);
     defer allocator.free(source);
 
-    try vm.interpret(source);
+    vm.interpret(source) catch {};
 }
 
 fn readFile(path: []const u8, allocator: *Allocator) []const u8 {

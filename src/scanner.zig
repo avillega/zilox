@@ -11,6 +11,11 @@ pub const Scanner = struct {
         return Self{ .source = source };
     }
 
+    pub fn hasNextToken(self: *Self) bool {
+        self.skipWhiteSpace();
+        return !self.isAtEnd();
+    }
+
     pub fn nextToken(self: *Self) ?Token {
         self.skipWhiteSpace();
         if (self.isAtEnd()) return null;

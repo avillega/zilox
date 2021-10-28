@@ -33,11 +33,14 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) void {
     const instruction = @intToEnum(OpCode, code.items[offset]);
     switch (instruction) {
         .op_constant => constantInstruction("OP_CONSTANT", chunk, offset),
+        .op_define_gloabl => constantInstruction("OP_DEFINE_GLOBAL", chunk, offset),
+        .op_get_global => constantInstruction("OP_GET_GLOBAL", chunk, offset),
+        .op_set_global => constantInstruction("OP_SET_GLOBAL", chunk, offset),
         .op_negate => simpleInstruction("OP_NEGATE"),
         .op_not => simpleInstruction("OP_NOT"),
         .op_nil => simpleInstruction("OP_NIL"),
-        .op_false => simpleInstruction("OP_EQUAL"),
-        .op_equal => simpleInstruction("OP_FALSE"),
+        .op_equal => simpleInstruction("OP_EQUAL"),
+        .op_false => simpleInstruction("OP_FALSE"),
         .op_greater => simpleInstruction("OP_GREATER"),
         .op_less => simpleInstruction("OP_LESS"),
         .op_true => simpleInstruction("OP_TRUE"),
@@ -45,6 +48,8 @@ pub fn disassembleInstruction(chunk: *Chunk, offset: usize) void {
         .op_sub => simpleInstruction("OP_SUBSTRACT"),
         .op_mul => simpleInstruction("OP_MULTIPLY"),
         .op_div => simpleInstruction("OP_DIVIDE"),
+        .op_print => simpleInstruction("OP_PRINT"),
+        .op_pop => simpleInstruction("OP_POP"),
         .op_ret => simpleInstruction("OP_RETURN"),
     }
 }

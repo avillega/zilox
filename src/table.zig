@@ -43,10 +43,8 @@ pub const Table = struct {
 
     pub fn get(self: *Table, key: *String) ?*Value {
         if (self.count == 0) return null;
-
         const entry = findEntry(self.entries, key);
         if (entry.key == null) return null;
-
         return &entry.value;
     }
 
@@ -70,7 +68,7 @@ pub const Table = struct {
             if (entry.key == null and entry.value.isNil()) return null;
             if (hash == entry.key.?.hash and std.mem.eql(u8, entry.key.?.bytes, bytes)) return entry.key.?;
 
-            index = (index + 1) % self.count;
+            index = (index + 1) % self.entries.len;
         }
     }
 
@@ -130,72 +128,85 @@ pub const Table = struct {
             index = (index + 1) % capacity;
         }
     }
+
+    pub fn debug(self: *Table) void {
+        std.debug.print("[\n", .{});
+        for (self.entries) |entry| {
+            if (entry.key) |e| {
+                std.debug.print("  {s} => ", .{e.bytes});
+            } else {
+                std.debug.print("  -- => ", .{});
+            }
+            std.debug.print("{any}\n", .{entry.value});
+        }
+        std.debug.print("]\n", .{});
+    }
 };
 
-// test "Add entry" {
-//     const Vm = @import("./vm.zig").Vm;
-//     const testing = std.testing;
+test "Add entry" {
+    const Vm = @import("./vm.zig").Vm;
+    const testing = std.testing;
 
-//     var vm = Vm.init(testing.allocator);
-//     defer vm.deinit();
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
 
-//     var table = Table.init(testing.allocator);
-//     defer table.deinit();
+    var table = Table.init(testing.allocator);
+    defer table.deinit();
 
-//     var k1 = String.copy(&vm, "Key1");
-//     var result = table.set(k1, Value.fromBool(true));
-//     try testing.expect(result);
+    var k1 = String.copy(&vm, "Key1");
+    var result = table.set(k1, Value.fromBool(true));
+    try testing.expect(result);
 
-//     result = table.set(k1, Value.fromNumber(13.0));
-//     try testing.expect(!result);
-// }
+    result = table.set(k1, Value.fromNumber(13.0));
+    try testing.expect(!result);
+}
 
-// test "query entry" {
-//     const Vm = @import("./vm.zig").Vm;
-//     const testing = std.testing;
+test "query entry" {
+    const Vm = @import("./vm.zig").Vm;
+    const testing = std.testing;
 
-//     var vm = Vm.init(testing.allocator);
-//     defer vm.deinit();
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
 
-//     var table = Table.init(testing.allocator);
-//     defer table.deinit();
+    var table = Table.init(testing.allocator);
+    defer table.deinit();
 
-//     var k1 = String.copy(&vm, "Key1");
-//     var result = table.set(k1, Value.fromNumber(42.0));
-//     try testing.expect(result);
+    var k1 = String.copy(&vm, "Key1");
+    var result = table.set(k1, Value.fromNumber(42.0));
+    try testing.expect(result);
 
-//     var val = table.get(k1);
-//     try testing.expect(val != null);
-//     try testing.expect(val.?.equals(Value.fromNumber(42.0)));
+    var val = table.get(k1);
+    try testing.expect(val != null);
+    try testing.expect(val.?.equals(Value.fromNumber(42.0)));
 
-//     var k2 = String.copy(&vm, "NoExistant");
-//     val = table.get(k2);
-//     try testing.expectEqual(val, null);
-// }
+    var k2 = String.copy(&vm, "NoExistant");
+    val = table.get(k2);
+    try testing.expectEqual(val, null);
+}
 
-// test "delete entry" {
-//     const Vm = @import("./vm.zig").Vm;
-//     const testing = std.testing;
+test "delete entry" {
+    const Vm = @import("./vm.zig").Vm;
+    const testing = std.testing;
 
-//     var vm = Vm.init(testing.allocator);
-//     defer vm.deinit();
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
 
-//     var table = Table.init(testing.allocator);
-//     defer table.deinit();
+    var table = Table.init(testing.allocator);
+    defer table.deinit();
 
-//     var k1 = String.copy(&vm, "Key1");
-//     var result = table.set(k1, Value.fromNumber(42.0));
-//     try testing.expect(result);
+    var k1 = String.copy(&vm, "Key1");
+    var result = table.set(k1, Value.fromNumber(42.0));
+    try testing.expect(result);
 
-//     result = table.delete(k1);
-//     try testing.expect(result);
+    result = table.delete(k1);
+    try testing.expect(result);
 
-//     const val = table.get(k1);
-//     try testing.expectEqual(val, null);
+    const val = table.get(k1);
+    try testing.expectEqual(val, null);
 
-//     result = table.delete(k1);
-//     try testing.expect(!result);
-// }
+    result = table.delete(k1);
+    try testing.expect(!result);
+}
 
 test "find string" {
     const Vm = @import("./vm.zig").Vm;
@@ -216,4 +227,34 @@ test "find string" {
         std.debug.print("Expected k1: {*} == k2: {*}", .{ k1, k2 });
         return error.TestUnexpectedResult;
     };
+}
+
+test "add two" {
+    const Vm = @import("./vm.zig").Vm;
+    const testing = std.testing;
+
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    var table = Table.init(testing.allocator);
+    defer table.deinit();
+
+    var k1 = String.copy(&vm, "one");
+    var k2 = String.copy(&vm, "two");
+    var k3 = String.copy(&vm, "three");
+    var k4 = String.copy(&vm, "four");
+    var result = table.set(k1, Value.fromNumber(1.0));
+    try testing.expect(result);
+    result = table.set(k2, Value.fromNumber(2.0));
+    try testing.expect(result);
+    result = table.set(k3, Value.fromNumber(3.0));
+    try testing.expect(result);
+    result = table.set(k4, Value.fromNumber(4.0));
+    try testing.expect(result);
+
+    var val = table.get(k1);
+    try testing.expect(val != null);
+
+    val = table.get(k1);
+    try testing.expect(val != null);
 }

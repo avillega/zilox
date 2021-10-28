@@ -23,6 +23,11 @@ pub const OpCode = enum(u8) {
     op_sub,
     op_mul,
     op_div,
+    op_print,
+    op_pop,
+    op_define_gloabl,
+    op_get_global,
+    op_set_global,
 
     pub fn toU8(self: Self) u8 {
         return @enumToInt(self);
@@ -31,6 +36,9 @@ pub const OpCode = enum(u8) {
     pub fn num_operands(self: Self) usize {
         return switch (self) {
             .op_constant => 1,
+            .op_define_gloabl => 1,
+            .op_get_global => 1,
+            .op_set_global => 1,
             else => 0,
         };
     }
