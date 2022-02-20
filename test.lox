@@ -1,27 +1,4 @@
-var x = "Hello";
-print x;
-print "aaaa" + x;
-
-print x + " World!";
-
-var pi = 3.1416;
-print pi;
-
-print pi + 2.0;
-
-var x = "Mundo";
-print "Hola " + x;
-
-var one = 1;
-var two = 2;
-var three = one + two;
-
-print one;
-print two;
-print three;
-
-var breakfast = "beignets";
-var beverage = "cafe au lait";
-breakfast = "beignets with " + beverage;
-
-print breakfast;
+(-1 + 2) * 3 -4
+true
+nil
+false

@@ -1,112 +1,121 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-const expect = std.testing.expect;
-const Obj = @import("./object.zig").Obj;
-
-pub const Value = union(enum) {
-    const Self = @This();
+const Vm = @import("vm.zig").Vm;
+pub const ValueType = enum {
+    bool,
     nil,
-    boolean: bool,
+    number,
+    string,
+};
+
+pub const Value = union(ValueType) {
+    nil,
+    bool: bool,
     number: f64,
-    obj: *Obj,
+    string: *ObjString,
 
-    pub fn isNil(self: Self) bool {
-        return self == .nil;
-    }
-
-    pub fn isBool(self: Self) bool {
-        return self == .boolean;
-    }
-
-    pub fn isNumber(self: Self) bool {
-        return self == .number;
-    }
-
-    pub fn isObj(self: Self) bool {
-        return self == .obj;
-    }
-
-    pub fn isString(self: Self) bool {
-        return self.isObj() and self.asObj().is(.string);
-    }
-
-    pub fn asBool(self: Self) bool {
-        std.debug.assert(self.isBool());
-        return self.boolean;
-    }
-
-    pub fn asNumber(self: Self) f64 {
-        std.debug.assert(self.isNumber());
-        return self.number;
-    }
-
-    pub fn asObj(self: Self) *Obj {
-        std.debug.assert(self.isObj());
-        return self.obj;
-    }
-
-    pub fn fromBool(val: bool) Self {
-        return Value{ .boolean = val };
-    }
-
-    pub fn fromNumber(val: f64) Self {
-        return Value{ .number = val };
-    }
-
-    pub fn fromObj(val: *Obj) Self {
-        return Value{ .obj = val };
-    }
-
-    pub fn equals(valA: Self, valB: Self) bool {
-        return switch (valA) {
-            .nil => switch (valB) {
-                .nil => true,
-                else => false,
-            },
-            .boolean => |a| switch (valB) {
-                .boolean => |b| a == b,
-                else => false,
-            },
-            .number => |a| switch (valB) {
-                .number => |b| a == b,
-                else => false,
-            },
-            .obj => |a| switch (valB) {
-                .obj => |b| {
-                    return a == b;
-                },
-                else => false,
-            },
+    pub fn eql(a: Value, b: Value) bool {
+        return switch (a) {
+            .nil => b == .nil,
+            .bool => |bo| b == .bool and bo == b.bool,
+            .number => |n| b == .number and n == b.number,
+            .string => |s| b == .string and s.eql(b.string),
         };
     }
 
-    pub fn isFalsey(self: Self) bool {
-        return switch (self) {
-            .nil => true,
-            .boolean => |b| !b,
-            .number => false,
-            .obj => false,
-        };
-    }
-
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
+    pub fn format(
+        val: Value,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         _ = fmt;
-        switch (self) {
-            .number => |value| try writer.print("{d}", .{value}),
-            .boolean => |value| try writer.print("{}", .{value}),
-            .nil => try writer.print("nil", .{}),
-            .obj => |obj| try printObj(obj, writer),
+        _ = options;
+
+        switch (val) {
+            .nil => try writer.writeAll("nil"),
+            .bool => if (val.bool) try writer.writeAll("true") else try writer.writeAll("false"),
+            .number => try writer.print("{d}", .{val.number}),
+            .string => try writer.print("{}", .{val.string}),
         }
     }
 };
 
-fn printObj(obj: *Obj, writer: anytype) !void {
-    switch (obj.obj_type) {
-        .string => try writer.print("{s}", .{obj.asString().bytes}),
-    }
-}
+pub const Obj = struct {
+    const Self = @This();
+    const FnType = fn (*Obj, *Vm) void;
+    deinitFn: FnType,
+    next: ?*Obj = null,
 
-test "size of a Value" {
-    try expect(@sizeOf(Value) == 16);
+    pub fn deinit(obj: *Obj, vm: *Vm) void {
+        obj.deinitFn(obj, vm);
+    }
+
+    pub fn allocate(self: *Obj, vm: *Vm) void {
+        self.next = vm.objects;
+        vm.objects = self;
+    }
+};
+
+pub const ObjString = struct {
+    const Self = @This();
+    chars: []const u8,
+    obj: Obj,
+
+    pub fn copyString(chars: []const u8, vm: *Vm) *Self {
+        const allocator = vm.allocator;
+        const interned = vm.strings.get(chars);
+        if (interned) |obj_str| {
+            return obj_str;
+        }
+
+        const heap_chars = allocator.dupe(u8, chars) catch std.debug.panic("Not enough memory, you got bigger problems!", .{});
+        return allocateString(heap_chars, vm);
+    }
+
+    pub fn takeString(chars: []const u8, vm: *Vm) *Self {
+        const allocator = vm.allocator;
+        const interned = vm.strings.get(chars);
+        if (interned) |obj_str| {
+            allocator.free(chars);
+            return obj_str;
+        }
+        return allocateString(chars, vm);
+    }
+
+    fn allocateString(chars: []const u8, vm: *Vm) *Self {
+        const allocator = vm.allocator;
+        const allocated_string = allocator.create(Self) catch std.debug.panic("Not enough memory, you got bigger problems!", .{});
+        allocated_string.chars = chars;
+        allocated_string.obj = Obj{ .deinitFn = deinit };
+        allocated_string.obj.allocate(vm);
+        vm.strings.put(chars, allocated_string) catch {};
+        return allocated_string;
+    }
+
+    pub fn eql(a: *Self, b: *Self) bool {
+        return std.mem.eql(u8, a.chars, b.chars);
+    }
+
+    pub fn format(
+        string: ObjString,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s}", .{string.chars});
+    }
+
+    pub fn deinit(obj: *Obj, vm: *Vm) void {
+        const self = @fieldParentPtr(Self, "obj", obj);
+        vm.allocator.free(self.chars);
+        vm.allocator.destroy(self);
+    }
+};
+
+test "Obj size" {
+    @compileLog("size of Obj: ", @sizeOf(Obj));
+    @compileLog("size of *Obj: ", @sizeOf(*Obj));
+    @compileLog("size of Val: ", @sizeOf(Value));
 }
