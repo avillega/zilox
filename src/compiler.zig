@@ -11,6 +11,11 @@ const Vm = @import("vm.zig").Vm;
 const dissasembleChunk = @import("debug.zig").dissasembleChunk;
 
 const errout = std.io.getStdErr().writer();
+const u8_count = std.math.maxInt(u8) + 1;
+
+const CompileCtx = struct {
+    can_assign: bool,
+};
 
 const Parser = struct {
     vm: *Vm = undefined,
@@ -20,7 +25,22 @@ const Parser = struct {
     panicMode: bool = false,
 };
 
-const ParseFn = fn () void;
+const Compiler = struct {
+    locals: [u8_count]Local = undefined,
+    local_count: u8 = 0,
+    scope_depth: u32 = 0,
+
+    pub fn init() Compiler {
+        return .{};
+    }
+};
+
+const Local = struct {
+    name: Token,
+    depth: ?u32,
+};
+
+const ParseFn = fn (CompileCtx) void;
 
 const ParseRule = struct {
     prefix: ?ParseFn = null,
@@ -31,6 +51,7 @@ const ParseRule = struct {
 var scanner: Scanner = undefined;
 var parser = Parser{};
 var compiling_chunk: *Chunk = undefined;
+var current: *Compiler = undefined;
 
 pub fn compile(src: []const u8, chunk: *Chunk, vm: *Vm) !void {
     scanner = Scanner.init(src);
@@ -38,9 +59,11 @@ pub fn compile(src: []const u8, chunk: *Chunk, vm: *Vm) !void {
     parser.hadError = false;
     parser.vm = vm;
     compiling_chunk = chunk;
+    current = &Compiler.init();
     advance();
-    expression();
-    consume(.eof, "Expect end of expression.");
+    while (!match(.eof)) {
+        declaration();
+    }
     endCompiler();
     if (parser.hadError) return error.compiler_error;
 }
@@ -59,19 +82,234 @@ fn expression() void {
     parsePrecedence(.prec_assignment);
 }
 
-fn number() void {
+fn declaration() void {
+    if (match(.token_var)) {
+        varDeclaration();
+    } else {
+        statement();
+    }
+
+    if (parser.panicMode) synchronize();
+}
+
+fn varDeclaration() void {
+    const global = parseVariable("Expect variable name.");
+    if (match(.equal)) {
+        expression();
+    } else {
+        emitOpCode(.op_nil);
+    }
+    consume(.semicolon, "Expect ';' after variable declaration");
+    defineVariable(global);
+}
+
+fn parseVariable(error_msg: []const u8) u8 {
+    consume(.identifier, error_msg);
+
+    declareVar();
+    if (current.scope_depth > 0) return 0;
+
+    return identifierConstant(parser.previous);
+}
+
+fn identifierConstant(name: Token) u8 {
+    return makeConstant(Value{ .string = ObjString.copyString(name.lexeme, parser.vm) });
+}
+
+fn resolveLocal(compiler: *Compiler, name: Token) ?u8 {
+    var i: usize = compiler.local_count;
+    while (i > 0)  {
+        i -= 1;
+        const local = compiler.locals[i];
+        if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
+            if (local.depth == null) {
+                err("Can't read local variable in its own initializer.");
+            }
+            return @intCast(u8, i);
+        }
+    }
+
+    return null;
+}
+
+fn defineVariable(global: u8) void {
+    if (current.scope_depth > 0) {
+        markInitialized();
+        return;
+    } 
+
+    emitBytes(@enumToInt(OpCode.op_define_global), global);
+}
+
+fn markInitialized() void {
+    current.locals[current.local_count - 1].depth = current.scope_depth;
+}
+
+fn declareVar() void {
+    if (current.scope_depth == 0) return;
+    const name = parser.previous;
+    var idx: usize = current.local_count;
+    while (idx > 0) {
+        idx -= 1;
+        const local = current.locals[idx];
+        if (local.depth != null and local.depth.? < current.scope_depth) break;
+
+        if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
+            err("Already a variable with this name in scope.");
+        }
+    }
+    addLocal(name);
+}
+
+fn addLocal(name: Token) void {
+    if (current.local_count == u8_count) {
+        err("Too may local variables in function.");
+        return;
+    }
+    current.locals[current.local_count] = Local{ .name = name, .depth = null };
+    current.local_count += 1;
+}
+
+fn statement() void {
+    if (match(.print)) {
+        printStmt();
+    } else if (match(.left_brace)) {
+        beginScope();
+        block();
+        endScope();
+    } else if (match(.token_if)) {
+        ifStmt();
+    } else {
+        expressionStmt();
+    }
+}
+
+fn ifStmt() void {
+    consume(.left_paren, "Expect '(' after if.");
+    expression();
+    consume(.right_paren, "Expect ')' after if.");
+
+    const thenJmp = emitJmp(.op_jmp_if_false);
+    emitOpCode(.op_pop);
+    statement();
+
+    const elseJmp = emitJmp(.op_jmp);
+
+    patchJmp(thenJmp);
+    emitOpCode(.op_pop);
+
+    if (match(.token_else)) statement();
+    patchJmp(elseJmp);
+}
+
+fn patchJmp(addr: usize) void {
+    const jmp = currentChunk().code.items.len - addr - 2;
+
+    if (jmp > std.math.maxInt(u16)) {
+        err("Too much code to jump over.");
+    }
+
+    currentChunk().code.items[addr] = @truncate(u8, jmp >> 8) & 0xff;
+    currentChunk().code.items[addr+1] = @truncate(u8, jmp) & 0xff;
+}
+
+fn beginScope() void {
+    current.scope_depth += 1;
+}
+
+fn block() void {
+    while (!check(.right_brace) and !check(.eof)) {
+        declaration();
+    }
+
+    consume(.right_brace, "Expect '}' after block.");
+}
+
+fn endScope() void {
+    current.scope_depth -= 1;
+    while (current.local_count > 0 and
+        current.locals[current.local_count - 1].depth.? > current.scope_depth)
+    {
+        emitOpCode(.op_pop);
+        current.local_count -= 1;
+    }
+}
+
+fn printStmt() void {
+    expression();
+    consume(.semicolon, "Expect ';' after value.");
+    emitOpCode(.op_print);
+}
+
+fn expressionStmt() void {
+    expression();
+    consume(.semicolon, "Expect ';' after value.");
+    emitOpCode(.op_pop);
+}
+
+fn synchronize() void {
+    parser.panicMode = false;
+
+    while (parser.current.type != .eof) {
+        if (parser.previous.type == .semicolon) return;
+        switch (parser.current.type) {
+            .class,
+            .fun,
+            .token_var,
+            .token_for,
+            .token_while,
+            .token_if,
+            .print,
+            .token_return,
+            => return,
+            else => {},
+        }
+        advance();
+    }
+}
+
+fn variable(ctx: CompileCtx) void {
+    namedVariable(parser.previous, ctx);
+}
+
+fn namedVariable(name: Token, ctx: CompileCtx) void {
+    var get_op: OpCode = undefined;
+    var set_op: OpCode = undefined;
+
+    var arg: ?u8 = resolveLocal(current, name);
+    if (arg) |_| {
+        get_op = .op_get_local;
+        set_op = .op_set_local;
+    } else {
+        arg = identifierConstant(name);
+        get_op = .op_get_global;
+        set_op = .op_set_global;
+    }
+
+    if (ctx.can_assign and match(.equal)) {
+        expression();
+        emitBytes(@enumToInt(set_op), arg.?);
+    } else {
+        emitBytes(@enumToInt(get_op), arg.?);
+    }
+}
+
+fn number(ctx: CompileCtx) void {
+    _ = ctx;
     const value = std.fmt.parseFloat(f64, parser.previous.lexeme) catch {
         std.debug.panic("Unexpected error trying to convert {s} to a number", .{parser.previous.lexeme});
     };
     emitConstant(Value{ .number = value });
 }
 
-fn string() void {
+fn string(ctx: CompileCtx) void {
+    _ = ctx;
     const chars = parser.previous.lexeme[1 .. parser.previous.lexeme.len - 1];
     emitConstant(Value{ .string = ObjString.copyString(chars, parser.vm) });
 }
 
-fn literal() void {
+fn literal(ctx: CompileCtx) void {
+    _ = ctx;
     switch (parser.previous.type) {
         .token_true => emitOpCode(.op_true),
         .token_false => emitOpCode(.op_false),
@@ -80,12 +318,14 @@ fn literal() void {
     }
 }
 
-fn grouping() void {
+fn grouping(ctx: CompileCtx) void {
+    _ = ctx;
     expression();
     consume(.right_paren, "Expect ')' after expression.");
 }
 
-fn unary() void {
+fn unary(ctx: CompileCtx) void {
+    _ = ctx;
     const operator_type = parser.previous.type;
     parsePrecedence(.prec_unary);
     switch (operator_type) {
@@ -95,7 +335,8 @@ fn unary() void {
     }
 }
 
-fn binary() void {
+fn binary(ctx: CompileCtx) void {
+    _ = ctx;
     const operator_type = parser.previous.type;
     const rule = getRule(operator_type);
     parsePrecedence(@intToEnum(Precedence, @enumToInt(rule.precedence) + 1));
@@ -122,12 +363,17 @@ fn parsePrecedence(precedence: Precedence) void {
         return;
     };
 
-    prefix_rule();
+    const can_assign = @enumToInt(precedence) <= @enumToInt(Precedence.prec_assignment);
+    prefix_rule(.{ .can_assign = can_assign });
 
     while (@enumToInt(precedence) <= @enumToInt(getRule(parser.current.type).precedence)) {
         advance();
         const infix_rule = getRule(parser.previous.type).infix orelse unreachable;
-        infix_rule();
+        infix_rule(.{ .can_assign = can_assign });
+    }
+
+    if (can_assign and match(.equal)) {
+        err("Invalid assignment target.");
     }
 }
 
@@ -140,6 +386,16 @@ fn consume(ty: TokenType, msg: []const u8) void {
     errorAtCurrent(msg);
 }
 
+fn match(ty: TokenType) bool {
+    if (!check(ty)) return false;
+    advance();
+    return true;
+}
+
+fn check(ty: TokenType) bool {
+    return parser.current.type == ty;
+}
+
 fn endCompiler() void {
     emitOpCode(.op_ret);
     const debug_print_code = true;
@@ -148,6 +404,12 @@ fn endCompiler() void {
             dissasembleChunk(currentChunk(), "code");
         }
     }
+}
+
+fn emitJmp(jmp: OpCode) usize {
+    emitOpCode(jmp);
+    emitBytes(0xff, 0xff);
+    return currentChunk().code.items.len - 2;
 }
 
 fn emitBytes(b1: u8, b2: u8) void {
@@ -243,6 +505,13 @@ fn getRule(ty: TokenType) ParseRule {
         .less => ParseRule{ .infix = binary, .precedence = .prec_comparison },
         .less_equal => ParseRule{ .infix = binary, .precedence = .prec_comparison },
         .string => ParseRule{ .prefix = string },
+        .print => ParseRule{},
+        .semicolon => ParseRule{},
+        .token_var => ParseRule{},
+        .identifier => ParseRule{ .prefix = variable },
+        .equal => ParseRule{},
+        .token_if => ParseRule{},
+        .token_else => ParseRule{},
         .eof => ParseRule{},
         else => std.debug.panic("there is no rule for token {}\n", .{ty}),
     };

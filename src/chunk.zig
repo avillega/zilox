@@ -16,6 +16,15 @@ pub const OpCode = enum(u8) {
     op_equal,
     op_greater,
     op_less,
+    op_print,
+    op_pop,
+    op_define_global,
+    op_get_global,
+    op_set_global,
+    op_set_local,
+    op_get_local,
+    op_jmp,
+    op_jmp_if_false,
     op_ret,
 };
 

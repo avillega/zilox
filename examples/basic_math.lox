@@ -1,0 +1,8 @@
+{
+    var a = 3;
+    var b = 2;
+    print a + b;
+
+    var c = a + b;
+    print c;
+}

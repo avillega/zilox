@@ -21,14 +21,16 @@ const BinaryOperation = enum { add, sub, mul, div, less, greater };
 pub const Vm = struct {
     const Self = @This();
     const out_writer = std.io.getStdOut().writer();
-    const StringHashSet = std.StringHashMap(*ObjString);
+    const StringsHashMap = std.StringHashMap(*ObjString);
+    const GlobalsHashMap = std.StringHashMap(Value);
 
     chunk: *Chunk = undefined,
     ip: usize,
     stack: [stack_max]Value = undefined,
     stack_top: usize,
     allocator: std.mem.Allocator,
-    strings: StringHashSet,
+    strings: StringsHashMap,
+    globals: GlobalsHashMap,
     objects: ?*Obj = null,
 
     pub fn init(allocator: std.mem.Allocator) Vm {
@@ -36,7 +38,8 @@ pub const Vm = struct {
             .ip = 0,
             .stack_top = 0,
             .allocator = allocator,
-            .strings = StringHashSet.init(allocator),
+            .strings = StringsHashMap.init(allocator),
+            .globals = GlobalsHashMap.init(allocator),
         };
     }
 
@@ -60,8 +63,8 @@ pub const Vm = struct {
     }
 
     fn run(self: *Self) InterpretError!void {
-        const trace_execution = false;
-        const trace_stack = false;
+        const trace_execution = true;
+        const trace_stack = true;
 
         while (true) {
             const instruction = @intToEnum(OpCode, self.readByte());
@@ -88,23 +91,82 @@ pub const Vm = struct {
                 .op_false => self.push(Value{ .bool = false }),
                 .op_nil => self.push(Value.nil),
                 .op_equal => self.opEqual(),
+                .op_print => self.opPrint(),
+                .op_pop => _ = self.pop(),
+                .op_define_global => self.opDefineGlobal(),
+                .op_get_global => self.opGetGlobal(),
+                .op_set_global => self.opSetGlobal(),
+                .op_get_local => self.opGetLocal(),
+                .op_set_local => self.opSetLocal(),
+                .op_jmp => self.opJmp(),
+                .op_jmp_if_false => self.opJmpIfFalse(),
                 .op_ret => {
-                    self.opRet();
                     return;
                 },
             };
         }
     }
 
+    inline fn opJmp(self: *Self) void {
+        self.ip += self.readU16();
+    }
+
+    inline fn opJmpIfFalse(self: *Self) void {
+        const offset = self.readU16();
+        if (isFalsey(self.peek(0))) {
+            self.ip += offset;
+        }
+
+    }
+
+    inline fn opGetLocal(self: *Self) void {
+        const slot = self.readByte();
+        self.push(self.stack[slot]);
+    }
+
+    inline fn opSetLocal(self: *Self) void {
+        const slot = self.readByte();
+        self.stack[slot] = self.peek(0);
+
+    }
+
+    inline fn opSetGlobal(self: *Self) InterpretError!void {
+        const name = self.readString();
+        if (!self.globals.contains(name.chars)) {
+            self.runtimeError("Undefined variable '{s}'", .{name.chars});
+            return InterpretError.runtime_error;
+        }
+        self.globals.put(name.chars, self.peek(0)) catch {};
+    }
+
+    inline fn opGetGlobal(self: *Self) InterpretError!void {
+        const name = self.readString();
+        const val = self.globals.get(name.chars) orelse {
+            self.runtimeError("Undefined variable {s}", .{name.chars});
+            return InterpretError.runtime_error;
+        };
+        self.push(val);
+    }
+
+    inline fn opDefineGlobal(self: *Self) void {
+        const name = self.readString();
+        self.globals.put(name.chars, self.peek(0)) catch {};
+        _ = self.pop();
+    }
+
+    inline fn readString(self: *Self) *ObjString {
+        return self.chunk.values.items[self.readByte()].string;
+    }
+
+    inline fn opPrint(self: *Self) void {
+        out_writer.print("{}\n", .{self.pop()}) catch {
+            std.debug.panic("Couldn't write to std output\n", .{});
+        };
+    }
+
     inline fn opConst(self: *Self) void {
         const constant = self.chunk.values.items[self.readByte()];
         self.push(constant);
-    }
-
-    inline fn opRet(self: *Self) void {
-        out_writer.print("{}\n", .{self.pop()}) catch {
-            std.debug.panic("couldn't write to stdout", .{});
-        };
     }
 
     inline fn opNeg(self: *Self) InterpretError!void {
@@ -176,6 +238,13 @@ pub const Vm = struct {
         return byte;
     }
 
+    inline fn readU16(self: *Self) u16 {
+        const b1 = @as(u16, self.chunk.code.items[self.ip]);
+        const b2 = self.chunk.code.items[self.ip+1];
+        self.ip += 2;
+        return ( b1 << 8) | b2;
+    }
+
     fn peek(self: *Self, distance: usize) Value {
         return self.stack[self.stack_top - 1 - distance];
     }
@@ -208,6 +277,7 @@ pub const Vm = struct {
     pub fn deinit(self: *Self) void {
         self.deinitObjs();
         self.strings.deinit();
+        self.globals.deinit();
         self.stack_top = 0;
         self.ip = 0;
     }
