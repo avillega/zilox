@@ -25,6 +25,7 @@ pub const OpCode = enum(u8) {
     op_get_local,
     op_jmp,
     op_jmp_if_false,
+    op_loop,
     op_ret,
 };
 

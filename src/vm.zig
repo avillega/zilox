@@ -9,6 +9,8 @@ const Value = value_mod.Value;
 const Obj = value_mod.Obj;
 const ObjString = value_mod.ObjString;
 
+const trace_execution = true;
+const trace_stack = false;
 const stack_max = 256;
 
 pub const InterpretError = error{
@@ -63,9 +65,6 @@ pub const Vm = struct {
     }
 
     fn run(self: *Self) InterpretError!void {
-        const trace_execution = true;
-        const trace_stack = true;
-
         while (true) {
             const instruction = @intToEnum(OpCode, self.readByte());
 
@@ -100,6 +99,7 @@ pub const Vm = struct {
                 .op_set_local => self.opSetLocal(),
                 .op_jmp => self.opJmp(),
                 .op_jmp_if_false => self.opJmpIfFalse(),
+                .op_loop => self.opLoop(),
                 .op_ret => {
                     return;
                 },
@@ -107,8 +107,14 @@ pub const Vm = struct {
         }
     }
 
+    inline fn opLoop(self: *Self) void {
+        const offset = self.readU16();
+        self.ip -= offset;
+    }
+
     inline fn opJmp(self: *Self) void {
-        self.ip += self.readU16();
+        const offset = self.readU16();
+        self.ip += offset;
     }
 
     inline fn opJmpIfFalse(self: *Self) void {
@@ -116,7 +122,6 @@ pub const Vm = struct {
         if (isFalsey(self.peek(0))) {
             self.ip += offset;
         }
-
     }
 
     inline fn opGetLocal(self: *Self) void {
@@ -242,7 +247,7 @@ pub const Vm = struct {
         const b1 = @as(u16, self.chunk.code.items[self.ip]);
         const b2 = self.chunk.code.items[self.ip+1];
         self.ip += 2;
-        return ( b1 << 8) | b2;
+        return (b1 << 8) | b2;
     }
 
     fn peek(self: *Self, distance: usize) Value {

@@ -118,7 +118,7 @@ fn identifierConstant(name: Token) u8 {
 
 fn resolveLocal(compiler: *Compiler, name: Token) ?u8 {
     var i: usize = compiler.local_count;
-    while (i > 0)  {
+    while (i > 0) {
         i -= 1;
         const local = compiler.locals[i];
         if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
@@ -136,7 +136,7 @@ fn defineVariable(global: u8) void {
     if (current.scope_depth > 0) {
         markInitialized();
         return;
-    } 
+    }
 
     emitBytes(@enumToInt(OpCode.op_define_global), global);
 }
@@ -179,9 +179,71 @@ fn statement() void {
         endScope();
     } else if (match(.token_if)) {
         ifStmt();
+    } else if (match(.token_while)) {
+        whileStmt();
+    } else if (match(.token_for)) {
+        forStmt();
     } else {
         expressionStmt();
     }
+}
+
+fn forStmt() void {
+    beginScope();
+    consume(.left_paren, "Expect '(' after for.");
+    if (match(.semicolon)) {
+        // do nothing
+    } else if (match(.token_var)) {
+        varDeclaration();
+    } else {
+        expressionStmt();
+    }
+
+    var loop_start = currentChunk().code.items.len;
+    var exitJmp: ?usize = null;
+    if (!match(.semicolon)) {
+        expression();
+        consume(.semicolon, "Expect ';' after loop condition");
+
+        // jump of of the loop if condition is false
+        exitJmp = emitJmp(.op_jmp_if_false);
+        emitOpCode(.op_pop); // pop the condition
+    }
+    
+    if (!match(.right_paren)) {
+        const bodyJmp = emitJmp(.op_jmp);
+        const increment_start = currentChunk().code.items.len;
+        expression();
+        emitOpCode(.op_pop);
+        consume(.right_paren, "Expected ')' after for clauses.");
+
+        emitLoop(loop_start);
+        loop_start = increment_start;
+        patchJmp(bodyJmp);
+    }
+
+    statement();
+    emitLoop(loop_start);
+    if (exitJmp) |jmp| {
+        patchJmp(jmp);
+        emitOpCode(.op_pop);
+    }
+    endScope();
+}
+
+fn whileStmt() void {
+    const loop_start = currentChunk().code.items.len;
+    consume(.left_paren, "Expect '(' after while.");
+    expression();
+    consume(.right_paren, "Expect ')' after while.");
+
+    const exitJmp = emitJmp(.op_jmp_if_false);
+    emitOpCode(.op_pop);
+    statement();
+    emitLoop(loop_start);
+
+    patchJmp(exitJmp);
+    emitOpCode(.op_pop);
 }
 
 fn ifStmt() void {
@@ -210,7 +272,7 @@ fn patchJmp(addr: usize) void {
     }
 
     currentChunk().code.items[addr] = @truncate(u8, jmp >> 8) & 0xff;
-    currentChunk().code.items[addr+1] = @truncate(u8, jmp) & 0xff;
+    currentChunk().code.items[addr + 1] = @truncate(u8, jmp) & 0xff;
 }
 
 fn beginScope() void {
@@ -356,6 +418,25 @@ fn binary(ctx: CompileCtx) void {
     }
 }
 
+fn andFn(ctx: CompileCtx) void {
+    _ = ctx;
+    const endJmp = emitJmp(.op_jmp_if_false);
+    emitOpCode(.op_pop);
+    parsePrecedence(.prec_and);
+    patchJmp(endJmp);
+}
+
+fn orFn(ctx: CompileCtx) void {
+    _ = ctx;
+    const elseJmp = emitJmp(.op_jmp_if_false);
+    const endJmp = emitJmp(.op_jmp);
+
+    patchJmp(elseJmp);
+    emitOpCode(.op_pop);
+    parsePrecedence(.prec_or);
+    patchJmp(endJmp);
+}
+
 fn parsePrecedence(precedence: Precedence) void {
     advance();
     const prefix_rule = getRule(parser.previous.type).prefix orelse {
@@ -404,6 +485,15 @@ fn endCompiler() void {
             dissasembleChunk(currentChunk(), "code");
         }
     }
+}
+
+fn emitLoop(loop_start: usize) void {
+    emitOpCode(.op_loop);
+    const offset = currentChunk().code.items.len - loop_start + 2;
+    if (offset > std.math.maxInt(u16)) err("Loop body too large.");
+
+    emitByte(@truncate(u8, (offset >> 8) & 0xff));
+    emitByte(@truncate(u8, offset & 0xff));
 }
 
 fn emitJmp(jmp: OpCode) usize {
@@ -512,6 +602,12 @@ fn getRule(ty: TokenType) ParseRule {
         .equal => ParseRule{},
         .token_if => ParseRule{},
         .token_else => ParseRule{},
+        .token_and => ParseRule{ .infix = andFn, .precedence = .prec_and },
+        .token_or => ParseRule{ .infix = orFn, .precedence = .prec_or },
+        .token_while => ParseRule{},
+        .token_for => ParseRule{},
+        .left_brace => ParseRule{},
+        .right_brace => ParseRule{},
         .eof => ParseRule{},
         else => std.debug.panic("there is no rule for token {}\n", .{ty}),
     };

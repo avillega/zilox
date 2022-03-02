@@ -51,6 +51,7 @@ pub fn dissasembleInstruction(chunk: *const Chunk, op_code: OpCode, idx: usize) 
         .op_set_local => byteInstruction("op_set_local", chunk, idx),
         .op_jmp => jmpInstruction("op_jmp", .pos, chunk, idx),
         .op_jmp_if_false => jmpInstruction("op_jmp_if_false", .pos, chunk, idx),
+        .op_loop => jmpInstruction("op_loop", .neg, chunk, idx),
     };
 }
 
